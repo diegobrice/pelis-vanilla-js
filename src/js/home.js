@@ -2,7 +2,10 @@
   async function getData(url) {
     const response = await fetch(url);
     const data = await response.json();
-    return data;
+    if (data.data.movie_count > 0) {
+      return data;
+    }
+    throw new Error("No se encontro ningun resultado");
   }
 
   const $form = document.getElementById("form");
@@ -47,32 +50,24 @@
     $featuringContainer.append($loader);
 
     const data = new FormData($form);
-    // const peli = await getData(
-    //   `${BASE_API}list_movies.json?limit=1&query_term=${data.get("name")}`
-    // );
-    // const HTMLString = featuringTemplate(peli.data.movies[0]);
-    const {
-      data: { movies: pelis },
-    } = await getData(
-      `${BASE_API}list_movies.json?limit=1&query_term=${data.get("name")}`
-    );
-    const HTMLString = featuringTemplate(pelis[0]);
-    $featuringContainer.innerHTML = HTMLString;
+    try {
+      const {
+        data: { movies: pelis },
+      } = await getData(
+        `${BASE_API}list_movies.json?limit=1&query_term=${data.get("name")}`
+      );
+      const HTMLString = featuringTemplate(pelis[0]);
+      $featuringContainer.innerHTML = HTMLString;
+    } catch (error) {
+      alert(error.message);
+      $loader.remove();
+      $home.classList.remove("search-active");
+    }
   });
 
-  const actionList = await getData(
-    `${BASE_API}list_movies.json?genre=action&limit=10`
-  );
-  const dramaList = await getData(
-    `${BASE_API}list_movies.json?genre=drama&limit=10`
-  );
-  const animationList = await getData(
-    `${BASE_API}list_movies.json?genre=animation&limit=10`
-  );
-
-  function videoItemTemplate(movie) {
+  function videoItemTemplate(movie, category) {
     return `
-    <div class="primaryPlaylistItem">
+    <div class="primaryPlaylistItem" data-id="${movie.id}" data-category="${category}">
       <div class="primaryPlaylistItem-image">
         <img src="${movie.medium_cover_image}">
       </div>
@@ -90,28 +85,48 @@
 
   function addEventClick($element) {
     $element.addEventListener("click", () => {
-      showModal();
+      showModal($element);
     });
   }
 
-  function renderMovieList(list, $container) {
+  function renderMovieList(list, $container, category) {
     $container.children[0].remove();
-    list.data.movies.forEach((movie) => {
-      const HTMLstring = videoItemTemplate(movie);
+    list.forEach((movie) => {
+      const HTMLstring = videoItemTemplate(movie, category);
       const movieElement = createTemplate(HTMLstring);
       $container.append(movieElement);
+      const image = movieElement.querySelector("img");
+      image.addEventListener("load", (event) => {
+        event.srcElement.classList.add("fadeIn");
+      });
       addEventClick(movieElement);
     });
   }
 
+  async function cacheExist(category) {
+    const listName = `${category}List`;
+    const cacheList = window.localStorage.getItem(listName);
+    if (cacheList) {
+      return JSON.parse(cacheList);
+    }
+    const {
+      data: { movies: data },
+    } = await getData(`${BASE_API}list_movies.json?genre=${category}&limit=10`);
+    window.localStorage.setItem(listName, JSON.stringify(data));
+    return data;
+  }
+
+  const actionList = await cacheExist("action");
   const $actionContainer = document.getElementById("action");
-  renderMovieList(actionList, $actionContainer);
+  renderMovieList(actionList, $actionContainer, "action");
 
+  const dramaList = await cacheExist("drama");
   const $dramaContainer = document.getElementById("drama");
-  renderMovieList(dramaList, $dramaContainer);
+  renderMovieList(dramaList, $dramaContainer, "drama");
 
+  const animationList = await cacheExist("animation");
   const $animationContainer = document.getElementById("animation");
-  renderMovieList(animationList, $animationContainer);
+  renderMovieList(animationList, $animationContainer, "animation");
 
   const $overlay = document.getElementById("overlay");
   const $hideModal = document.getElementById("hide-modal");
@@ -120,9 +135,37 @@
   const $modalImage = $modal.querySelector("img");
   const $modalDescription = $modal.querySelector("p");
 
-  function showModal() {
+  function findById(list, id) {
+    return list.find((movie) => movie.id === parseInt(id, 10));
+  }
+
+  function findMovie(id, category) {
+    switch (category) {
+      case "action": {
+        return findById(actionList, id);
+      }
+      case "drama": {
+        return findById(dramaList, id);
+      }
+      case "animation": {
+        return findById(animationList, id);
+      }
+      default: {
+        return;
+      }
+    }
+  }
+
+  function showModal($element) {
     $overlay.classList.add("active");
     $modal.style.animation = "modalIn .8s forwards";
+    const id = $element.dataset.id;
+    const category = $element.dataset.category;
+    const data = findMovie(id, category);
+    console.log(data);
+    $modalTitle.textContent = data.title;
+    $modalImage.setAttribute("src", data.medium_cover_image);
+    $modalDescription.textContent = data.description_full;
   }
 
   $hideModal.addEventListener("click", hideModal);
